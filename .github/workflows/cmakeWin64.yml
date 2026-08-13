@@ -1,8 +1,9 @@
 name: Windows x86_64
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ master ]
+    branches: [ master, custom-v1.1-tags-as-rows ]
   pull_request:
     branches: [ master ]
 
