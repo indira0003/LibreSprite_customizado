@@ -47,6 +47,7 @@ namespace {
   static const char* kAllFrames = "";
   static const char* kSelectedLayers = "**selected-layers**";
   static const char* kSelectedFrames = "**selected-frames**";
+  static const int kTagsAsRowsSheetTypeIndex = 4;
 
   // Special key value used in default preferences to know if by default
   // the user wants to generate texture and/or files.
@@ -342,7 +343,9 @@ public:
     sheetType()->addItem("Vertical Strip");
     sheetType()->addItem("By Rows");
     sheetType()->addItem("By Columns");
-    if (m_docPref.spriteSheet.type() != app::SpriteSheetType::None)
+    sheetType()->addItem("Tags as Rows");
+    if (m_docPref.spriteSheet.type() >= app::SpriteSheetType::Horizontal &&
+        m_docPref.spriteSheet.type() <= app::SpriteSheetType::Columns)
       sheetType()->setSelectedItemIndex((int)m_docPref.spriteSheet.type()-1);
 
     layers()->addItem("Visible layers");
@@ -466,10 +469,14 @@ public:
   }
 
   app::SpriteSheetType spriteSheetTypeValue() const {
+    if (tagsAsRowsMode())
+      return app::SpriteSheetType::Columns;
     return (app::SpriteSheetType)(sheetType()->getSelectedItemIndex()+1);
   }
 
   int columnsValue() const {
+    if (tagsAsRowsMode())
+      return 0;
     if (spriteSheetTypeValue() != SpriteSheetType::Columns)
       return columns()->textInt();
     else
@@ -477,6 +484,8 @@ public:
   }
 
   int rowsValue() const {
+    if (tagsAsRowsMode())
+      return 0;
     if (spriteSheetTypeValue() == SpriteSheetType::Columns)
       return rows()->textInt();
     else
@@ -492,6 +501,8 @@ public:
   }
 
   bool bestFitValue() const {
+    if (tagsAsRowsMode())
+      return false;
     return bestFit()->isSelected();
   }
 
@@ -544,6 +555,8 @@ public:
   }
 
   bool pertagEnabledValue() const {
+    if (tagsAsRowsMode())
+      return true;
     switch(spriteSheetTypeValue()){
       case app::SpriteSheetType::Horizontal:
       case app::SpriteSheetType::Vertical:
@@ -567,6 +580,8 @@ public:
   }
 
   std::string frameTagValue() const {
+    if (tagsAsRowsMode())
+      return kAllFrames;
     if (TagItem* item = dynamic_cast<TagItem*>(frames()->getSelectedItem()))
       return item->tag()->name();
     else if (frames()->getSelectedItemIndex() == 1)
@@ -585,7 +600,18 @@ public:
 
 private:
 
+  bool tagsAsRowsMode() const {
+    return sheetType()->getSelectedItemIndex() == kTagsAsRowsSheetTypeIndex;
+  }
+
+  bool hasFrameTags() const {
+    return m_sprite->frameTags().begin() != m_sprite->frameTags().end();
+  }
+
   void onExport() {
+    if (tagsAsRowsMode() && !hasFrameTags())
+      return;
+
     if (!ask_overwrite(m_filenameAskOverwrite, filenameValue(),
                        m_dataFilenameAskOverwrite, dataFilenameValue()))
       return;
@@ -594,19 +620,26 @@ private:
   }
 
   void onSheetTypeChange() {
+    const bool tagsAsRows = tagsAsRowsMode();
     bool rowsState = false;
     bool colsState = false;
     bool matrixState = false;
-    switch (spriteSheetTypeValue()) {
-      case app::SpriteSheetType::Rows:
-        colsState = true;
-        matrixState = true;
-        break;
-      case app::SpriteSheetType::Columns:
-        rowsState = true;
-        matrixState = true;
-        break;
+    if (!tagsAsRows) {
+      switch (spriteSheetTypeValue()) {
+        case app::SpriteSheetType::Rows:
+          colsState = true;
+          matrixState = true;
+          break;
+        case app::SpriteSheetType::Columns:
+          rowsState = true;
+          matrixState = true;
+          break;
+      }
     }
+
+    if (tagsAsRows)
+      frames()->setSelectedItemIndex(0);
+    frames()->setEnabled(!tagsAsRows);
 
     columnsLabel()->setVisible(colsState);
     columns()->setVisible(colsState);
@@ -625,6 +658,13 @@ private:
 
     resize();
     updateSizeFields();
+    updateExportButton();
+
+    if (tagsAsRows && !hasFrameTags()) {
+      StatusBar* statusbar = StatusBar::instance();
+      if (statusbar)
+        statusbar->showTip(2500, "Tags as Rows requires at least one frame tag");
+    }
   }
 
   void onFileNamesChange() {
@@ -729,10 +769,12 @@ private:
   }
 
   void updateExportButton() {
-    exportButton()->setEnabled(
+    const bool hasOutput =
       imageEnabled()->isSelected() ||
       dataEnabled()->isSelected() ||
-      openGenerated()->isSelected());
+      openGenerated()->isSelected();
+    const bool validTagsMode = !tagsAsRowsMode() || hasFrameTags();
+    exportButton()->setEnabled(hasOutput && validTagsMode);
   }
 
   void updateSizeFields() {
@@ -752,7 +794,7 @@ private:
     }
 
     Fit fit;
-    if (bestFit()->isSelected()) {
+    if (!tagsAsRowsMode() && bestFit()->isSelected()) {
       fit = best_fit(m_sprite, nframes,
                      borderPaddingValue(), shapePaddingValue(), innerPaddingValue());
     }else if(pertagEnabledValue()){
